@@ -21,15 +21,17 @@ from torchvision import transforms
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_MODEL_PATH = Path(__file__).resolve().parent / "models" / "efficientnet3class_full_model.pth"
+
 
 class ModelService:
     """Service for model loading and inference
-    
+
     Handles loading an EfficientNet-based 3-class classifier and running predictions
     on uploaded images to detect real vs AI-generated vs suspicious faces.
     """
 
-    def __init__(self, model_path: str = "../models/efficientnet3class_full_model.pth"):
+    def __init__(self, model_path: str | Path = DEFAULT_MODEL_PATH):
         """
         Initialize the model service
 

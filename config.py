@@ -25,7 +25,7 @@ class Settings(BaseModel):
     api_version: str = "1.0.0"
 
     # Model settings
-    model_path: str = "../models/efficientnet3class_full_model.pth"
+    model_path: str = "models/efficientnet3class_full_model.pth"
     device: str = "cuda"  # cuda or cpu
     model_confidence_threshold: float = 0.30
 
@@ -73,7 +73,7 @@ def get_settings() -> Settings:
         port=int(os.getenv("API_PORT", "8000")),
         debug=os.getenv("DEBUG", "False").lower() == "true",
         workers=int(os.getenv("WORKERS", "4")),
-        model_path=os.getenv("MODEL_PATH", "../models/efficientnet3class_full_model.pth"),
+        model_path=os.getenv("MODEL_PATH", "models/efficientnet3class_full_model.pth"),
         device=os.getenv("DEVICE", "cuda"),
         max_upload_size_mb=int(os.getenv("MAX_UPLOAD_SIZE_MB", "10")),
         cors_origins=os.getenv(
