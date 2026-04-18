@@ -1,24 +1,21 @@
-# Hakiki Scanner API - Production Backend
+# Hakiki Scanner API
 
-A production-ready FastAPI backend for face authenticity detection using a pre-trained EfficientNet model. Detects real vs AI-generated vs suspicious faces with high accuracy.
+A FastAPI backend for multimodal content verification. Routes image, document, and text uploads through a Gemini-powered pipeline and returns a deterministic verdict (real / suspicious / fake) from a rule-based decision engine.
 
 ## Features
 
-✅ **Fast Image Analysis** - GPU-accelerated inference with CUDA support  
-✅ **RESTful API** - Clean FastAPI endpoints with automatic documentation  
-✅ **Production Ready** - Comprehensive error handling and validation  
-✅ **CORS Enabled** - Configured for frontend integration  
-✅ **Auto API Docs** - Interactive Swagger UI at `/docs`  
-✅ **Health Checks** - Built-in monitoring endpoints  
-✅ **Detailed Logging** - Complete request/response logging  
+- **Multimodal validation** — images, PDFs/text docs, and raw text
+- **Gemini-powered** — OCR, image analysis, claim extraction, and claim verification all go through the Gemini LLM gateway
+- **Online claim verification** — cross-checks extracted claims against web search results
+- **Deterministic decisions** — signals (claim truthfulness, image authenticity, source trust) are fused by a rule-based engine, not an LLM
+- **Auto API docs** — interactive Swagger UI at `/docs`
 
 ## Quick Start
 
 ### Prerequisites
 
 - Python 3.10+
-- CUDA 11.8+ (optional, for GPU inference)
-- Model file: `models/efficientnet3class_full_model.pth`
+- A Gemini API key ([aistudio.google.com](https://aistudio.google.com/app/apikey))
 
 ### Installation
 
@@ -30,22 +27,17 @@ A production-ready FastAPI backend for face authenticity detection using a pre-t
 2. **Configure environment**
    ```bash
    cp .env.example .env
-   # Edit .env with your settings
+   # Edit .env and set GEMINI_API_KEY
    ```
 
-3. **Verify model exists**
-   ```bash
-   ls -lh models/efficientnet3class_full_model.pth
-   ```
-
-4. **Start the API**
+3. **Start the API**
    ```bash
    python main.py
    ```
 
-   The API will start at `http://localhost:8000`
+   The API will start at `http://localhost:8000`.
 
-5. **Test the API**
+4. **Test the API**
    - Interactive docs: http://localhost:8000/docs
    - Health check: `curl http://localhost:8000/health`
    - API info: `curl http://localhost:8000/info`
@@ -54,170 +46,111 @@ A production-ready FastAPI backend for face authenticity detection using a pre-t
 
 ### Health & Info
 
-- **GET `/health`** - Health check
-  ```bash
-  curl http://localhost:8000/health
-  ```
-  Response:
+- **GET `/health`** — Health check
   ```json
-  {
-    "status": "ok",
-    "model_loaded": true,
-    "version": "1.0.0"
-  }
+  { "status": "ok", "version": "1.2.0" }
   ```
 
-- **GET `/info`** - API and model information
+- **GET `/info`** — API and LLM configuration
+
+### Validation
+
+- **POST `/validate`** — Validate an uploaded image or document
   ```bash
-  curl http://localhost:8000/info
+  curl -X POST -F "file=@face.jpg" http://localhost:8000/validate
+  curl -X POST -F "file=@article.pdf" http://localhost:8000/validate
   ```
 
-### Prediction
-
-- **POST `/predict`** - Analyze image for authenticity
+- **POST `/validate-text`** — Validate a text statement
   ```bash
-  curl -X POST -F "image=@face.jpg" http://localhost:8000/predict
-  ```
-  
-  Request: Multipart form with `image` file  
-  Response:
-  ```json
-  {
-    "verdict": "real",
-    "confidence": 87.45,
-    "scores": {
-      "real": 87.45,
-      "suspicious": 8.92,
-      "fake": 3.63
-    }
-  }
+  curl -X POST http://localhost:8000/validate-text \
+    -H "Content-Type: application/json" \
+    -d '{"text": "Statement to verify"}'
   ```
 
-  **Verdicts:**
-  - `real` - Genuine/real face
-  - `suspicious` - Potentially manipulated or unclear
-  - `fake` - AI-generated or synthetic face
+Both endpoints return a `DecisionResult` with the input type, verdict, confidence, and per-signal evidence.
 
 ## Configuration
 
 Environment variables in `.env`:
 
 ```bash
-# API Configuration
-API_HOST=0.0.0.0      # Bind address
-API_PORT=8000         # Port number
-DEBUG=False           # Debug mode (disable in production)
-WORKERS=4             # Number of worker processes
+# API
+API_HOST=0.0.0.0
+API_PORT=8000
+DEBUG=False
+WORKERS=4
 
-# Model Configuration
-MODEL_PATH=models/efficientnet3class_full_model.pth
-DEVICE=cuda           # 'cuda' or 'cpu'
+# LLM (Gemini)
+GEMINI_API_KEY=your-key-here
+GEMINI_MODEL=gemini-1.5-flash
 
-# File Upload
+# File upload
 MAX_UPLOAD_SIZE_MB=10
 
 # CORS
-CORS_ORIGINS=http://localhost:8080,http://localhost:3000
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 
 # Logging
-LOG_LEVEL=INFO        # DEBUG, INFO, WARNING, ERROR, CRITICAL
+LOG_LEVEL=INFO
+```
+
+Optional LLM routing overrides (defaults route all tasks to Gemini):
+
+```bash
+LLM_ROUTE_OCR=gemini-vision
+LLM_ROUTE_IMAGE_ANALYSIS=gemini-vision
+LLM_ROUTE_CLAIM_EXTRACTION=gemini-text
+LLM_ROUTE_CLAIM_VERIFICATION=gemini-text
+LLM_ROUTE_REASONING=gemini-text
+LLM_TIMEOUT_S=30
+LLM_MAX_RETRIES=3
+LLM_RETRY_BACKOFF_S=1.5
 ```
 
 ## Production Deployment
 
-### Using Gunicorn (Recommended)
+### Using Gunicorn
 
-1. **Install Gunicorn**
-   ```bash
-   pip install gunicorn
-   ```
-
-2. **Start with Gunicorn**
-   ```bash
-   gunicorn main:app \
-     --workers 4 \
-     --worker-class uvicorn.workers.UvicornWorker \
-     --bind 0.0.0.0:8000 \
-     --access-logfile - \
-     --error-logfile -
-   ```
+```bash
+pip install gunicorn
+gunicorn main:app \
+  --workers 4 \
+  --worker-class uvicorn.workers.UvicornWorker \
+  --bind 0.0.0.0:8000 \
+  --access-logfile - \
+  --error-logfile -
+```
 
 ### Using Docker
 
-Create `Dockerfile`:
 ```dockerfile
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libopenblas-dev \
-    libomp-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements and install
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application
 COPY . .
 
-# Create model directory
-RUN mkdir -p models
-
-# Expose port
 EXPOSE 8000
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-# Start API
 CMD ["gunicorn", "main:app", \
      "--workers", "4", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
      "--bind", "0.0.0.0:8000"]
 ```
 
-Build and run:
 ```bash
 docker build -t hakiki-scanner-api .
-docker run -p 8000:8000 -v $(pwd)/models:/app/models hakiki-scanner-api
+docker run -p 8000:8000 --env-file .env hakiki-scanner-api
 ```
 
-### Using Docker Compose
-
-Create `docker-compose.yml`:
-```yaml
-version: '3.8'
-services:
-  api:
-    build: .
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./models:/app/models
-    environment:
-      - MODEL_PATH=/app/models/efficientnet3class_full_model.pth
-      - DEVICE=cpu  # Use cpu for CPU-only systems
-      - WORKERS=4
-      - API_HOST=0.0.0.0
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-```
-
-Start with:
-```bash
-docker-compose up
-```
-
-### Nginx Configuration
-
-Example Nginx reverse proxy setup:
+### Nginx reverse proxy
 
 ```nginx
 upstream fastapi_app {
@@ -245,171 +178,61 @@ server {
 }
 ```
 
-## Performance Tuning
-
-### GPU Optimization
-```bash
-# Enable GPU with cuDNN
-export CUDA_VISIBLE_DEVICES=0
-export TORCH_CUDNN_ENABLED=1
-```
-
-### Model Optimization
-- Use `DEVICE=cuda` for GPU inference (~10-50ms per image)
-- Use `DEVICE=cpu` for CPU inference (~100-500ms per image)
-
-### API Optimization
-- Increase `WORKERS` for parallel requests (recommended: 2-4 per CPU core)
-- Use Gunicorn's `--worker-connections` to handle more concurrent clients
-- Enable HTTP/2 in reverse proxy for multiplexing
-
-## Monitoring
-
-### Logs
-```bash
-# Real-time logs
-tail -f access.log
-
-# View specific errors
-grep ERROR logs/*.log
-```
-
-### Metrics to Monitor
-- Request latency: Should be <100ms for GPU, <500ms for CPU
-- Error rate: Should be <0.1%
-- Model memory: Typically 100-200MB
-- API memory: 300-500MB total
-
-### Health Monitoring
-```bash
-# Check API health
-watch -n 5 "curl -s http://localhost:8000/health | jq"
-
-# Model info
-curl http://localhost:8000/info | jq
-```
-
 ## Troubleshooting
 
-### Model Loading Fails
+### Gemini API key not set
 ```
-Error: Model file not found
+RuntimeError: GEMINI_API_KEY is not set. Add it to backend/.env.
 ```
-- Check `MODEL_PATH` in `.env`
-- Verify model file exists: `ls -lh models/efficientnet3class_full_model.pth`
+Set `GEMINI_API_KEY` in `.env`.
 
-### CUDA Not Available
-```
-GPU: False, using CPU
-```
-- Check CUDA installation: `nvidia-smi`
-- Set `DEVICE=cpu` in `.env` if no GPU available
-
-### Port Already in Use
+### Port already in use
 ```
 OSError: [Errno 48] Address already in use
 ```
-- Change `API_PORT` in `.env`
-- Or kill existing process: `lsof -ti:8000 | xargs kill -9`
+Change `API_PORT` in `.env`, or kill the existing process: `lsof -ti:8000 | xargs kill -9`.
 
-### CORS Errors
-- Update `CORS_ORIGINS` in `.env` to include your frontend URL
-- Example: `CORS_ORIGINS=http://localhost:8080,https://yourdomain.com`
-
-## API Response Examples
-
-### Successful Prediction (Real Face)
-```json
-{
-  "verdict": "real",
-  "confidence": 92.34,
-  "scores": {
-    "real": 92.34,
-    "suspicious": 5.12,
-    "fake": 2.54
-  }
-}
-```
-
-### Suspicious Image
-```json
-{
-  "verdict": "suspicious",
-  "confidence": 68.45,
-  "scores": {
-    "real": 25.30,
-    "suspicious": 68.45,
-    "fake": 6.25
-  }
-}
-```
-
-### AI-Generated Face
-```json
-{
-  "verdict": "fake",
-  "confidence": 88.92,
-  "scores": {
-    "real": 3.45,
-    "suspicious": 7.63,
-    "fake": 88.92
-  }
-}
-```
-
-### Error Response
-```json
-{
-  "error": "Invalid file format. Allowed formats: jpeg, jpg, png, webp",
-  "status_code": 400
-}
-```
+### CORS errors
+Update `CORS_ORIGINS` in `.env` to include your frontend URL.
 
 ## Frontend Integration
 
-Update your frontend to point to the API:
-
 ```javascript
-// React example
-const analyzeImage = async (file) => {
+// Upload an image or document
+const validateFile = async (file) => {
   const formData = new FormData();
-  formData.append("image", file);
-  
-  const response = await fetch("http://localhost:8000/predict", {
+  formData.append("file", file);
+
+  const res = await fetch("http://localhost:8000/validate", {
     method: "POST",
     body: formData,
   });
-  
-  const result = await response.json();
-  console.log(result.verdict, result.confidence);
+  return res.json();
+};
+
+// Validate text
+const validateText = async (text) => {
+  const res = await fetch("http://localhost:8000/validate-text", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  return res.json();
 };
 ```
 
 ## Development
 
-### Enable Debug Mode
+### Debug mode
 ```bash
 DEBUG=True python main.py
 ```
 
-### Run Tests (when available)
+### Code style
 ```bash
-pytest tests/ -v
-```
-
-### Code Style
-```bash
-# Format code
-black main.py config.py model_service.py
-
-# Check linting
-pylint main.py
+black main.py config.py pipelines/ validation/ verification/ llm/
 ```
 
 ## License
 
-MIT - See LICENSE file
-
-## Support
-
-For issues and feature requests, please open an issue on the GitHub repository.
+MIT — see LICENSE file.
